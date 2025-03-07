@@ -206,11 +206,34 @@ class DeadReckoning(Estimator):
         super().__init__(is_noisy)
         self.canvas_title = 'Dead Reckoning'
 
-    def update(self, _):
+    def update(self, i):
         if len(self.x_hat) > 0:
             # TODO: Your implementation goes here!
+            # Get the current state estimate
+            x_prev = self.x_hat[-1]
+            # u_prev = self.u[i - 1]  # Input at the previous time step
+
+            # Extract state variables
+            x, z, phi, x_dot, z_dot, phi_dot = x_prev
+            u1, u2 = self.u[i]
+
+            # Compute the derivatives using the dynamics model
+            x_ddot = (-u1 * np.sin(phi)) / self.m
+            z_ddot = -self.gr + (u1 * np.cos(phi)) / self.m
+            phi_ddot = u2 / self.J
+
+            # Update the state using the forward Euler method
+            x_new = x + x_dot * self.dt
+            z_new = z + z_dot * self.dt
+            phi_new = phi + phi_dot * self.dt
+            x_dot_new = x_dot + x_ddot * self.dt
+            z_dot_new = z_dot + z_ddot * self.dt
+            phi_dot_new = phi_dot + phi_ddot * self.dt
+
+            # Append the new state estimate
+            self.x_hat.append(np.array([x_new, z_new, phi_new, x_dot_new, z_dot_new, phi_dot_new]))
             # You may ONLY use self.u and self.x[0] for estimation
-            raise NotImplementedError
+            # raise NotImplementedError
 
 # noinspection PyPep8Naming
 class ExtendedKalmanFilter(Estimator):
@@ -246,25 +269,180 @@ class ExtendedKalmanFilter(Estimator):
         self.A = None
         self.B = None
         self.C = None
-        self.Q = None
-        self.R = None
-        self.P = None
+
+
+        # Process noise covariance
+        self.Q = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])  # Tune as needed
+        # Measurement noise covariance
+        self.R = np.diag([0.5, 0.5])  # Adjust based on sensor noise
+        # State covariance matrix
+        self.P = np.eye(6) * 1  # Initial state uncertainty
+
 
     # noinspection DuplicatedCode
     def update(self, i):
         if len(self.x_hat) > 0: #and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
             # You may use self.u, self.y, and self.x[0] for estimation
-            raise NotImplementedError
+            # raise NotImplementedError
+           
+
+            # Get the latest control input and measurement
+            u = self.u[i]
+            y = self.y[i]
+
+            # Get the previous state estimate and covariance
+            x_prev = self.x_hat[-1]
+            P_prev = self.P
+
+            # State extrapolation (using nonlinear dynamics)
+            x_pred = self.g(x_prev, u)
+
+            # Linearize the dynamics model
+            A = self.approx_A(x_prev, u)
+
+            # Covariance extrapolation
+            P_pred = A @ P_prev @ A.T + self.Q
+
+            # Linearize the measurement model
+            C = self.approx_C(x_pred)
+
+            # Kalman gain
+            K = P_pred @ C.T @ np.linalg.inv(C @ P_pred @ C.T + self.R)
+
+            # Measurement update
+            y_pred = self.h(x_pred)
+            x_updated = x_pred + K @ (y - y_pred)
+
+            # Covariance update
+            P_updated = (np.eye(6) - K @ C) @ P_pred
+
+            # Save the updated state and covariance
+            self.x_hat.append(x_updated)
+            self.P = P_updated
+
 
     def g(self, x, u):
-        raise NotImplementedError
+        # raise NotImplementedError
+        """Nonlinear dynamics model."""
+        x_pos, z_pos, phi, x_vel, z_vel, phi_vel = x
+        u1, u2 = u
 
-    def h(self, x, y_obs):
-        raise NotImplementedError
+        # Dynamics equations
+        x_acc = (-u1 * np.sin(phi)) / self.m
+        z_acc = -self.gr + (u1 * np.cos(phi)) / self.m
+        phi_acc = u2 / self.J
 
+        # State update
+        x_pos_new = x_pos + x_vel * self.dt
+        z_pos_new = z_pos + z_vel * self.dt
+        phi_new = phi + phi_vel * self.dt
+        x_vel_new = x_vel + x_acc * self.dt
+        z_vel_new = z_vel + z_acc * self.dt
+        phi_vel_new = phi_vel + phi_acc * self.dt
+
+        return np.array([x_pos_new, z_pos_new, phi_new, x_vel_new, z_vel_new, phi_vel_new])
+
+
+
+
+
+        # """Nonlinear dynamics model for the planar quadrotor."""
+        # x_pos, z_pos, phi, vx, vz, omega = x
+        # f1, f2 = u  # Control inputs (thrust from rotors)
+
+        # # Operating point (x^*, u^*)
+        # x_star = self.x_hat[-1] if len(self.x_hat) > 0 else x
+        # u_star = self.u[-1] if len(self.u) > 0 else u
+
+        # # Total thrust and net moment at operating point
+        # u1_star = u_star[0] + u_star[1]
+        # u2_star = (self.L / 2) * (u_star[0] - u_star[1])
+
+        # # Dynamics at operating point
+        # g_star = np.array([
+        #     x_star[0] + x_star[3] * self.dt,  # x position
+        #     x_star[1] + x_star[4] * self.dt,  # z position
+        #     x_star[2] + x_star[5] * self.dt,  # phi (pitch angle)
+        #     x_star[3] + (-u1_star * np.sin(x_star[2])) / self.mass * self.dt,  # vx
+        #     x_star[4] + (-self.gr + (u1_star * np.cos(x_star[2])) / self.m) * self.dt,  # vz
+        #     x_star[5] + (u2_star / self.J) * self.dt  # omega
+        # ])
+
+        # # Jacobian A (∂g/∂x)
+        # A = self.approx_A(x_star, u_star)
+
+        # # Jacobian B (∂g/∂u)
+        # B = self.approx_B(x_star, u_star)
+
+        # # Linearized dynamics
+        # x_next = g_star + A @ (x - x_star) + B @ (u - u_star)
+
+        # return x_next
+
+    def h(self, x):
+        # raise NotImplementedError
+        """Nonlinear measurement model."""
+        x_pos, z_pos, phi, _, _, _ = x
+        lx, ly, lz = self.landmark
+
+        # Distance to landmark
+        distance = np.sqrt((lx - x_pos)**2 + ly**2 + (lz - z_pos)**2)
+        # Bearing of the landmark
+        bearing = phi
+
+        return np.array([distance, bearing])
+
+        
     def approx_A(self, x, u):
-        raise NotImplementedError
+        # raise NotImplementedError
+        """Linearize the dynamics model around the current state and input."""
+        x_pos, z_pos, phi, x_vel, z_vel, phi_vel = x
+        u1, u2 = u
+
+        # Jacobian of the dynamics (A matrix)
+        A = np.eye(6)  # Identity matrix for the state transition
+        A[0, 3] = self.dt  # x_pos depends on x_vel
+        A[1, 4] = self.dt  # z_pos depends on z_vel
+        A[2, 5] = self.dt  # phi depends on phi_vel
+        A[3, 2] = (-u1 * np.cos(phi) / self.m) * self.dt  # x_vel depends on phi
+        A[4, 2] = (-u1 * np.sin(phi) / self.m) * self.dt  # z_vel depends on phi
+
+        return A
+
+
     
     def approx_C(self, x):
-        raise NotImplementedError
+        # raise NotImplementedError
+        x_pos, z_pos, phi, _, _, _ = x
+        lx, ly, lz = self.landmark
+
+        # Jacobian of the measurement model (C matrix)
+        distance = np.sqrt((lx - x_pos)**2 + ly**2 + (lz - z_pos)**2)
+        C = np.zeros((2, 6))
+        C[0, 0] = -(lx - x_pos) / distance  # Partial derivative of distance w.r.t. x_pos
+        C[0, 1] = -(lz - z_pos) / distance  # Partial derivative of distance w.r.t. z_pos
+        C[1, 2] = 1  # Partial derivative of bearing w.r.t. phi
+
+        return C
+    
+
+
+
+
+    def approx_B(self, x, u):
+        """Jacobian of the dynamics model with respect to u."""
+        phi = x[2]  # Pitch angle
+
+        B = np.zeros((6, 2))
+        B[3, 0] = (-np.sin(phi)) / self.m * self.dt  # vx depends on f1
+        B[3, 1] = (-np.sin(phi)) / self.m * self.dt  # vx depends on f2
+        B[4, 0] = (np.cos(phi)) / self.m * self.dt  # vz depends on f1
+        B[4, 1] = (np.cos(phi)) / self.m * self.dt  # vz depends on f2
+        B[5, 0] = (self.L / (2 * self.J)) * self.dt  # omega depends on f1
+        B[5, 1] = (-self.L / (2 * self.J)) * self.dt  # omega depends on f2
+
+        return B
+
+
+    
