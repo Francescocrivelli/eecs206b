@@ -246,11 +246,42 @@ class DeadReckoning(Estimator):
         super().__init__()
         self.canvas_title = 'Dead Reckoning'
 
-    def update(self, _):
+    def update(self, i):
         if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
+            # Get the current state estimate
+            x_prev = self.x_hat[-1]
+            
+            # Extract the current state variables
+            phi_prev = x_prev[0]
+            x_prev_pos = x_prev[1]
+            y_prev_pos = x_prev[2]
+            theta_L_prev = x_prev[3]
+            theta_R_prev = x_prev[4]
+            
+            # Get the current control inputs
+            u_L = self.u[i][0]
+            u_R = self.u[i][1]
+            
+            # Compute the state derivatives using the dynamics model
+            phi_dot = (-self.r / (2 * self.d)) * u_L + (self.r / (2 * self.d)) * u_R
+            x_dot = (self.r / 2) * np.cos(phi_prev) * u_L + (self.r / 2) * np.cos(phi_prev) * u_R
+            y_dot = (self.r / 2) * np.sin(phi_prev) * u_L + (self.r / 2) * np.sin(phi_prev) * u_R
+            theta_L_dot = u_L
+            theta_R_dot = u_R
+            
+            # Update the state estimate using the forward Euler method
+            phi_next = phi_prev + phi_dot * self.dt
+            x_next = x_prev_pos + x_dot * self.dt
+            y_next = y_prev_pos + y_dot * self.dt
+            theta_L_next = theta_L_prev + theta_L_dot * self.dt
+            theta_R_next = theta_R_prev + theta_R_dot * self.dt
+            
+            # Append the new state estimate to x_hat
+            x_next_state = np.array([phi_next, x_next, y_next, theta_L_next, theta_R_next])
+            self.x_hat.append(x_next_state)
             # You may ONLY use self.u and self.x[0] for estimation
-            raise NotImplementedError
+            # raise NotImplementedError
 
 
 class KalmanFilter(Estimator):
@@ -281,6 +312,24 @@ class KalmanFilter(Estimator):
         self.phid = np.pi / 4
         # TODO: Your implementation goes here!
         # You may define the A, C, Q, R, and P matrices below.
+        # Define model matrices
+      
+        self.A = np.eye(4)  # State transition matrix
+        self.B = np.array([
+            [self.r * 0.5 * np.cos(self.phid), self.r * 0.5 * np.cos(self.phid)],
+            [self.r * 0.5 * np.sin(self.phid), self.r * 0.5 * np.sin(self.phid)],
+            [1, 0],
+            [0, 1]
+        ]) * self.dt # Control input matrix
+        self.C = np.array([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0]
+        ])  # Measurement matrix
+
+        # Define noise covariance matrices
+        self.Q = np.diag([0.01, 0.01, 0.01, 0.01])  # Process noise covariance
+        self.R = np.diag([0.1, 0.1])  # Measurement noise covariance
+        self.P = np.diag([1, 1, 1, 1])  # Initial state covariance
 
     # noinspection DuplicatedCode
     # noinspection PyPep8Naming
@@ -288,11 +337,33 @@ class KalmanFilter(Estimator):
         if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
             # You may use self.u, self.y, and self.x[0] for estimation
-            raise NotImplementedError
+
+
+            # Get the latest control input and measurement
+            u = self.u[-1]
+            y = self.y[-1]
+
+            # Get the previous state estimate and covariance
+            x_prev = self.x_hat[-1]         # Step 2 in algorithm
+            P_prev = self.P                 # Step 3 in algorithm
+
+            # Prediction step
+            x_pred = self.A @ x_prev + self.B @ u   # State extrapolation
+            P_pred = self.A @ P_prev @ self.A.T + self.Q # Covariance extrapolation
+
+            # Update step
+            K = P_pred @ self.C.T @ np.linalg.inv(self.C @ P_pred @ self.C.T + self.R)  # Kalman gain
+            x_updated = x_pred + K @ (y - self.C @ x_pred)  # State update
+            P_updated = (np.eye(4) - K @ self.C) @ P_pred  # Covariance update
+
+            # Save the updated state and covariance
+            self.x_hat.append(x_updated)
+            self.P = P_updated
+            # raise NotImplementedError
 
 
 # noinspection PyPep8Naming
-class ExtendedKalmanFilter(Estimator):
+class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE EXTRA CREDIT     
     """Extended Kalman filter estimator.
 
     Your task is to implement the update method of this class using the u
@@ -325,11 +396,111 @@ class ExtendedKalmanFilter(Estimator):
         self.landmark = (0.5, 0.5)
         # TODO: Your implementation goes here!
         # You may define the Q, R, and P matrices below.
+         # Define noise covariance matrices
+        # Define noise covariance matrices
+        self.Q = np.diag([0.01, 0.01, 0.01, 0.01, 0.01])  # Process noise covariance
+        self.R = np.diag([0.1, 0.1])  # Measurement noise covariance
+        self.P = np.eye(5) * 1  # Initial state covariance
+
+    def g(self, x, u):
+        """Nonlinear dynamics model for the unicycle."""
+        phi, x_pos, y_pos, theta_L, theta_R = x
+        u_L, u_R = u
+
+        # State update
+        phi_new = phi + (-self.r / (2 * self.d)) * u_L * self.dt + (self.r / (2 * self.d)) * u_R * self.dt
+        x_pos_new = x_pos + (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt
+        y_pos_new = y_pos + (self.r / 2) * np.sin(phi) * (u_L + u_R) * self.dt
+        theta_L_new = theta_L + u_L * self.dt
+        theta_R_new = theta_R + u_R * self.dt
+
+        return np.array([phi_new, x_pos_new, y_pos_new, theta_L_new, theta_R_new])
+
+    def h(self, x):
+        """Nonlinear measurement model."""
+        phi, x_pos, y_pos, _, _ = x
+        lx, ly = self.landmark
+
+        # Distance to landmark
+        distance = np.sqrt((lx - x_pos)**2 + (ly - y_pos)**2)
+        # Bearing angle
+        bearing = np.arctan2(ly - y_pos, lx - x_pos) - phi
+
+        return np.array([distance, bearing])
+
+    def approx_A(self, x, u):
+        """Linearize the dynamics model around the current state and input."""
+        phi, _, _, _, _ = x
+        u_L, u_R = u
+
+        # Jacobian of the dynamics (A matrix)
+        A = np.eye(5)  # Identity matrix for the state transition
+        A[0, 3] = (-self.r / (2 * self.d)) * self.dt  # Partial derivative of phi w.r.t. theta_L
+        A[0, 4] = (self.r / (2 * self.d)) * self.dt  # Partial derivative of phi w.r.t. theta_R
+        A[1, 0] = (-self.r / 2) * np.sin(phi) * (u_L + u_R) * self.dt  # Partial derivative of x_pos w.r.t. phi
+        A[1, 3] = (self.r / 2) * np.cos(phi) * self.dt  # Partial derivative of x_pos w.r.t. theta_L
+        A[1, 4] = (self.r / 2) * np.cos(phi) * self.dt  # Partial derivative of x_pos w.r.t. theta_R
+        A[2, 0] = (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt  # Partial derivative of y_pos w.r.t. phi
+        A[2, 3] = (self.r / 2) * np.sin(phi) * self.dt  # Partial derivative of y_pos w.r.t. theta_L
+        A[2, 4] = (self.r / 2) * np.sin(phi) * self.dt  # Partial derivative of y_pos w.r.t. theta_R
+
+        return A
+
+    def approx_C(self, x):
+        """Linearize the measurement model around the current state."""
+        _, x_pos, y_pos, _, _ = x
+        lx, ly = self.landmark
+
+        # Distance to landmark
+        distance = np.sqrt((lx - x_pos)**2 + (ly - y_pos)**2)
+
+        # Jacobian of the measurement model (C matrix)
+        C = np.zeros((2, 5))
+        C[0, 1] = -(lx - x_pos) / distance  # Partial derivative of distance w.r.t. x_pos
+        C[0, 2] = -(ly - y_pos) / distance  # Partial derivative of distance w.r.t. y_pos
+        C[1, 1] = (ly - y_pos) / distance**2  # Partial derivative of bearing w.r.t. x_pos
+        C[1, 2] = -(lx - x_pos) / distance**2  # Partial derivative of bearing w.r.t. y_pos
+        C[1, 0] = -1  # Partial derivative of bearing w.r.t. phi
+
+        return C
 
     # noinspection DuplicatedCode
     def update(self, _):
         if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
             # You may use self.u, self.y, and self.x[0] for estimation
-            raise NotImplementedError
+            # Get the latest control input and measurement
+            u = self.u[i]
+            y = self.y[i]
+
+            # Get the previous state estimate and covariance
+            x_prev = self.x_hat[-1]
+            P_prev = self.P
+
+            # State extrapolation (using nonlinear dynamics)
+            x_pred = self.g(x_prev, u)
+
+            # Linearize the dynamics model
+            A = self.approx_A(x_prev, u)
+
+            # Covariance extrapolation
+            P_pred = A @ P_prev @ A.T + self.Q
+
+            # Linearize the measurement model
+            C = self.approx_C(x_pred)
+
+            # Kalman gain
+            K = P_pred @ C.T @ np.linalg.inv(C @ P_pred @ C.T + self.R)
+
+            # Measurement update
+            y_pred = self.h(x_pred)
+            x_updated = x_pred + K @ (y - y_pred)
+
+            # Covariance update
+            P_updated = (np.eye(5) - K @ C) @ P_pred
+
+            # Save the updated state and covariance
+            self.x_hat.append(x_updated)
+            self.P = P_updated
+            # raise NotImplementedError
 
