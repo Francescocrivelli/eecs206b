@@ -36,7 +36,7 @@ class Estimator:
             x[i][5] is right wheel rotational position (rad).
         y : list
             A list of system outputs, where, for the ith data point y[i],
-            y[i][0] is timestamp (s),
+            y[i][0] is timex_hat stamp (s),
             y[i][1] is translational position in x (m) when freeze_bearing:=true,
             y[i][1] is distance to the landmark (m) when freeze_bearing:=false,
             y[i][2] is translational position in y (m) when freeze_bearing:=true, and
@@ -79,22 +79,12 @@ class Estimator:
         self.y = []
         self.x_hat = []  # Your estimates go here!
         self.dt = 0.1
-        
-        # Create figure and subplots manually instead of using subplot_mosaic
-        self.fig = plt.figure(figsize=(20.0, 10.0))
-        self.axd = {}
-        
-        # Create a grid of subplots
-        gs = plt.GridSpec(4, 2, figure=self.fig)
-        
-        # Create each subplot and store in the axd dictionary
-        self.axd['xy'] = self.fig.add_subplot(gs[0:4, 0])  # Left column, all rows
-        self.axd['phi'] = self.fig.add_subplot(gs[0, 1])   # Top right
-        self.axd['x'] = self.fig.add_subplot(gs[1, 1])     # Second row right
-        self.axd['y'] = self.fig.add_subplot(gs[2, 1])     # Third row right
-        self.axd['thl'] = self.fig.add_subplot(gs[3, 1])   # Bottom right
-        self.axd['thr'] = self.fig.add_subplot(gs[3, 1])   # Same as thl (they share the same subplot)
-        
+        self.fig, self.axd = plt.subplot_mosaic(
+            [['xy', 'phi'],
+             ['xy', 'x'],
+             ['xy', 'y'],
+             ['xy', 'thl'],
+             ['xy', 'thr']], figsize=(20.0, 10.0))
         self.ln_xy, = self.axd['xy'].plot([], 'o-g', linewidth=2, label='True')
         self.ln_xy_hat, = self.axd['xy'].plot([], 'o-c', label='Estimated')
         self.ln_phi, = self.axd['phi'].plot([], 'o-g', linewidth=2, label='True')
@@ -126,7 +116,7 @@ class Estimator:
 
     def print_metrics(self):
         """Print accuracy and running time metrics when the node shuts down."""
-        if len(self.position_errors) == 0 or len(self.orientation_errors) == 0 or len(self.running_times) == 0:
+        if len(self.position_errors) == 0 and len(self.orientation_errors) == 0 and len(self.running_times) == 0:
             print("No metrics computed yet.")
             return
 
@@ -235,7 +225,7 @@ class Estimator:
     def plot_thrline(self, ln, data):
         if len(data):
             t = [d[0] for d in data]
-            thr = [d[5] for d in data]
+            thr = [d[5] for d in data] 
             ln.set_data(t, thr)
             self.resize_lim(self.axd['thr'], t, thr)
 
@@ -277,9 +267,10 @@ class DeadReckoning(Estimator):
     with the parameters provided to you in the lab doc. After building the
     model, use the provided inputs to estimate system state over time.
 
-    The method should closely predict the state evolution if the system is
-    free of noise. You may use this knowledge to verify your implementation.
+    The method should closely predict the state evolution if the system is            u_L = self.u[i][0]
 
+    free of noise. You may use this knowledge to verify your implementation.
+ing_times.append(end_time - start_time)
     Example
     ----------
     To run dead reckoning:
@@ -293,22 +284,26 @@ class DeadReckoning(Estimator):
     def __init__(self):
         super().__init__()
         self.canvas_title = 'Dead Reckoning'
+        self.current_step = 0
 
-    def update(self, i):
-        if len(self.x_hat) > 0: # and self.x_hat[-1][0] < self.x[-1][0]:
+    def update(self, _):
+        if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
             start_time = time.time()
             # Get the current state estimate
             x_prev = self.x_hat[-1]
             
             # Extract the current state variables and control inputs
-            phi_prev = x_prev[0]
-            x_prev_pos = x_prev[1]
-            y_prev_pos = x_prev[2]
-            theta_L_prev = x_prev[3]
-            theta_R_prev = x_prev[4]
-            u_L = self.u[i][0]
-            u_R = self.u[i][1]
+            phi_prev = x_prev[1]
+            x_prev_pos = x_prev[2]
+            y_prev_pos = x_prev[3]
+            theta_L_prev = x_prev[4]
+            theta_R_prev = x_prev[5]
+            # u_L = self.u[i][0]
+            # u_R = self.u[i][1]
+            if self.current_step >= len(self.u):
+                return 
+            _, u_L, u_R = self.u[self.current_step]
             
             # Compute the state derivatives using the dynamics model
             phi_dot = (-self.r / (2 * self.d)) * u_L + (self.r / (2 * self.d)) * u_R
@@ -325,8 +320,11 @@ class DeadReckoning(Estimator):
             theta_R_next = theta_R_prev + theta_R_dot * self.dt
             
     
-            x_next_state = np.array([phi_next, x_next, y_next, theta_L_next, theta_R_next])
+            x_next_state = np.array([x_prev[0] + self.dt, phi_next, x_next, y_next, theta_L_next, theta_R_next])
             self.x_hat.append(x_next_state)
+
+
+            self.current_step += 1
             # You may ONLY use self.u and self.x[0] for estimation
 
 
@@ -335,11 +333,12 @@ class DeadReckoning(Estimator):
             self.running_times.append(end_time - start_time)
 
             # Compute estimation error
-            if len(self.x) > i:
-                error_position = np.linalg.norm(self.x[i][1:3] - x_next_state[1:3])  # Error function in terms of x and y
-                error_orientation = np.linalg.norm(self.x[i][0] - x_next_state[0]) # phi 
+            if len(self.x) > self.current_step:
+                error_position = np.linalg.norm(self.x[self.current_step][2:4] - x_next_state[2:4])  # Error function in terms of x and y
+                error_orientation = np.linalg.norm(self.x[self.current_step][1] - x_next_state[1]) # phi 
                 self.position_errors.append(error_position)
                 self.orientation_errors.append(error_orientation)
+            
           
 
 
@@ -350,11 +349,11 @@ class KalmanFilter(Estimator):
     attribute, y attribute, and x0. You will need to build a model of the
     linear unicycle model at the default bearing of pi/4. After building the
     model, use the provided inputs and outputs to estimate system state over
-    time via the recursive Kalman filter update rule.
+    time via the r1:6]ecursive Kalman filter update rule.
 
     Attributes:
     ----------
-        phid : float
+        phid : floating_times
             Default bearing of the turtlebot fixed at pi / 4.
 
     Example
@@ -379,51 +378,57 @@ class KalmanFilter(Estimator):
             [self.r * 0.5 * np.sin(self.phid), self.r * 0.5 * np.sin(self.phid)],
             [1, 0],
             [0, 1]
-        ]) * self.dt # Control input matrix
+        ]) * self.dt # Coself.current_step = 0ntrol input matrix
         self.C = np.array([
             [1, 0, 0, 0],
-            [0, 1, 0, 0]
-        ])  # Measurement matrix
-
+            [0, 1, 0, 0]])
         # Define noise covariance matrices
         self.Q = np.diag([0.01, 0.01, 0.01, 0.01]) * 1 # Process noise covariance
-        self.R = np.diag([0.1, 0.1]) * 10 # Measurement noise covariance
+        self.R = np.diag([0.1, 0.1]) * 1 # Measurement noise covariance
         self.P = np.diag([1, 1, 1, 1])  * 1 # Initial state covariance
-
+        
+        self.current_step = 0
     # noinspection DuplicatedCode
     # noinspection PyPep8Naming
-    def update(self, i):
-        if len(self.x_hat) > 0: # and self.x_hat[-1][0] < self.x[-1][0]:
-            # TODO: Your implementation goes here!
+    def update(self, _):
+        if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
+            # TODO: Your implementation goes here! print(error_position)
             # You may use self.u, self.y, and self.x[0] for estimation
             start_time = time.time()
 
             # Get the latest control input and measurement
-            u = self.u[-1]
-            y = self.y[-1]
+            if self.current_step >= len(self.u):
+                return 
+            _, u_L, u_R = self.u[self.current_step] 
+            u = np.array([u_L, u_R])
+            y = self.y[self.current_step][1:] 
 
             # Get the previous state estimate and covariance
-            x_prev = self.x_hat[-1]                        
+            x_prev = self.x_hat[-1][2:6] # Extract [x, y, thetaL, thetaR]  
+            P_pred = self.A @ self.P @ self.A.T + self.Q # Covaraince extrapolation (4x4)                      
 
             # Prediction step
-            x_pred = self.A @ x_prev + self.B @ u   # State extrapolation
-            P_pred = self.A @ self.P @ self.A.T + self.Q # Covariance extrapolation
-
-            # Update step
+            x_pred = self.A @ x_prev + self.B @ u # State extrapolation (4x1)
             K = P_pred @ self.C.T @ np.linalg.inv(self.C @ P_pred @ self.C.T + self.R)  # Kalman gain
-            x_updated = x_pred + K @ (y - self.C @ x_pred)  # State update
+
+            y_pred = self.C @ x_pred # Predicted measurement 2x1
+
+            x_updated = x_pred + K @ (y - y_pred)  # State update
             P_updated = (np.eye(4) - K @ self.C) @ P_pred  # Covariance update
-            self.x_hat.append(x_updated)
+
+            x_updated_full = np.concatenate(([self.x_hat[-1][0] + self.dt], [self.x_hat[-1][1]], x_updated)) # Add timestamp and phi back
+            self.x_hat.append(x_updated_full)
             self.P = P_updated
 
+            self.current_step += 1
 
             end_time = time.time()
             self.running_times.append(end_time - start_time)
-            if len(self.x) > i:
-                error_position = np.linalg.norm(self.x[i][0:2] - x_updated[0:2])  # Error function in terms of x and y
-                # error_orientation = np.linalg.norm(self.x[i][0] - x_updated[0]) # phi is constant so we don't need to measure orientation error
+            if len(self.x) > self.current_step:
+                error_position = np.linalg.norm(self.x[self.current_step][2:4] - x_updated_full[2:4])  # Error function in terms of x and y
+                error_orientation = np.linalg.norm(self.x[self.current_step][1] - x_updated_full[1]) # phi is constant so we don't need to measure orientation error
                 self.position_errors.append(error_position)
-                self.orientation_errors.append(0)
+                self.orientation_errors.append(error_orientation)
           
 
 
@@ -437,7 +442,7 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
     model, use the provided inputs and outputs to estimate system state over
     time via the recursive extended Kalman filter update rule.
 
-    Hint: You may want to reuse your code from DeadReckoning class and
+    Hint: You may want to reuse your code from DeadReckoning class andy 
     KalmanFilter class.
 
     Attributes:
@@ -459,17 +464,21 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         super().__init__()
         self.canvas_title = 'Extended Kalman Filter'
         self.landmark = (0.5, 0.5)
+
+        self.current_step = 0
         # TODO: Your implementation goes here!
         # You may define the Q, R, and P matrices below.
       
         # Define noise covariance matrices
-        self.Q = np.diag([0.01, 0.01, 0.01, 0.01, 0.01]) * 1 # Process noise covariance
-        self.R = np.diag([0.1, 0.1]) * 1 # Measurement noise covariance
+        self.Q = np.diag([0.01, 0.01, 0.01, 0.01, 0.01]) * 100 # Process noise covariance
+        self.R = np.diag([0.1, 0.1]) * 10 # Measurement noise covariance
         self.P = np.eye(5) * 1  # Initial state covariance
 
     def g(self, x, u):
-        """Nonlinear dynamics model for the unicycle."""
-        phi, x_pos, y_pos, theta_L, theta_R = x
+        """Nonlinear dynamif self.current_step >= len(self.u):
+                return ics model for the unicycle."""
+    
+        phi, x_pos, y_pos, theta_L, theta_R = x[1:6]
         u_L, u_R = u
 
         # State update
@@ -490,13 +499,13 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         distance = np.sqrt((lx - x_pos)**2 + (ly - y_pos)**2)
         # Bearing angle
         bearing = np.arctan2(ly - y_pos, lx - x_pos) - phi
-        # bearing = phi
+    
 
         return np.array([distance, bearing])
 
     def approx_A(self, x, u):
         """Linearize the dynamics model around the current state and input."""
-        phi, _, _, _, _ = x
+        phi, _, _, _, _ = x[1:6]        # [phi, x, y, thetaL, thetaR] ignore timestamp
         u_L, u_R = u
 
         # Jacobian of the dynamics (A matrix)
@@ -509,7 +518,6 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         A[2, 0] = (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt  # Partial derivative of y_pos w.r.t. phi
         A[2, 3] = (self.r / 2) * np.sin(phi) * self.dt  # Partial derivative of y_pos w.r.t. theta_L
         A[2, 4] = (self.r / 2) * np.sin(phi) * self.dt  # Partial derivative of y_pos w.r.t. theta_R
-
         return A
 
     def approx_C(self, x):
@@ -531,17 +539,21 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         return C
 
     # noinspection DuplicatedCode
-    def update(self, i):
-        if len(self.x_hat) > 0: # and self.x_hat[-1][0] < self.x[-1][0]:
+    def update(self, _):
+        if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
             # You may use self.u, self.y, and self.x[0] for estimation
             start_time = time.time()
     
-            u = self.u[i]
-            y = self.y[i]
+            
+            if self.current_step >= len(self.u):
+                return 
+            _, u_L, u_R = self.u[self.current_step]
+            u = np.array([u_L, u_R])
+            y = self.y[self.current_step][1:] 
 
             x_prev = self.x_hat[-1]
-            x_pred = self.g(x_prev, u)      # State extrapolation (using nonlinear dynamics)
+            x_pred = self.g(x_prev, u)      
 
          
             A = self.approx_A(x_prev, u)     # Linearize the dynamics model
@@ -549,16 +561,21 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
             C = self.approx_C(x_pred)   # Linearize the measurement model
             K = P_pred @ C.T @ np.linalg.inv(C @ P_pred @ C.T + self.R)
 
-            x_updated = x_pred + K @ (y - self.h(x_pred))
-            self.x_hat.append(x_updated)
+            y_pred = self.h(x_pred)
+            x_updated = x_pred + K @ (y - y_pred)
+            # self.x_hat.append(x_updated)
+            x_updated_full = np.concatenate(([self.x_hat[-1][0] + self.dt], x_updated)) # Add back timestamp
+            self.x_hat.append(x_updated_full)
             self.P = (np.eye(5) - K @ C) @ P_pred
+
+            self.current_step += 1
 
             end_time = time.time()
             self.running_times.append(end_time - start_time)
 
-            if len(self.x) > i:
-                error_position = np.linalg.norm(self.x[i][1:3] - x_updated[1:3])  # Error function in terms of x and y
-                error_orientation = np.linalg.norm(self.x[i][0] - x_updated[0]) # phi 
+            if len(self.x) > self.current_step:
+                error_position = np.linalg.norm(self.x[self.current_step][2:4] - x_updated_full[2:4])  # Error function in terms of x and y
+                error_orientation = np.linalg.norm(self.x[self.current_step][1] - x_updated_full[1]) # phi 
                 self.position_errors.append(error_position)
                 self.orientation_errors.append(error_orientation)
             
