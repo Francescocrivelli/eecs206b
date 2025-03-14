@@ -73,7 +73,9 @@ class Estimator:
         self.canvas_title = 'N/A'
 
          # New attributes for quantitative measurements
-        self.errors = []  # To store estimation errors
+        self.position_errors = []
+        self.orientation_errors = []
+        # self.errors = []  # To store estimation errors
         self.running_times = []  # To store per-step running times
 
         # Defined in dynamics.py for the dynamics model
@@ -116,17 +118,21 @@ class Estimator:
     
     def compute_accuracy(self):
         """Compute and print accuracy metrics (MSE, RMSE, MAE)."""
-        if len(self.errors) == 0:
+        if len(self.position_errors) == 0 or len(self.orientation_errors) == 0:
             print("No errors computed yet.")
             return
 
-        mse = np.mean(np.square(self.errors))
-        rmse = np.sqrt(mse)
-        mae = np.mean(np.abs(self.errors))
+        mse_position = np.mean(np.square(self.position_errors))
+        rmse_position = np.sqrt(mse_position)
+        mse_orientation = np.mean(np.square(self.orientation_errors))
+        rmse_orentation = np.sqrt(mse_orientation)
+        # mae = np.mean(np.abs(self.errors))
         print(f"Estimation Accuracy Metrics:")
-        print(f"MSE: {mse:.6f}")
-        print(f"RMSE: {rmse:.6f}")
-        print(f"MAE: {mae:.6f}")
+        # print(f"MSE: {mse:.6f}")
+        print(f"RMSE Position: {rmse_position:.6f}")
+        print(f"RMSE Orientation: {rmse_orentation:.6f}")
+
+        # print(f"MAE: {mae:.6f}")
 
     def compute_running_time(self):
         """Compute and print average per-step running time."""
@@ -235,7 +241,7 @@ class DeadReckoning(Estimator):
     Example
     ----------
     To run dead reckoning:
-        $ python drone_estimator_node.py --estimator dead_reckoning
+        $ python drone_estimator_node.py --estimator dr
     """
     def __init__(self, is_noisy=True):              # TRIED CHANGING IS_NOISY FROM FALSE TO TRUE TO SEE IF SMTH CHANGED
         super().__init__(is_noisy)
@@ -267,8 +273,10 @@ class DeadReckoning(Estimator):
             end_time = time.time()
             self.running_times.append(end_time - start_time)
             if len(self.x) > i:
-                error = np.linalg.norm(self.x[i][0:6] - x_next_state[0:6]) # Error function in terms of x, z, and phi
-                self.errors.append(error)
+                pos_error = np.linalg.norm(self.x[i][0:2] - x_next_state[0:2]) # Error function in terms of x, z
+                orientation_error = np.linalg.norm(self.x[i][2] - x_next_state[2]) # Error function in terms of phi
+                self.position_errors.append(pos_error)
+                self.orientation_errors.append(orientation_error)
     
 
 # noinspection PyPep8Naming
@@ -295,7 +303,7 @@ class ExtendedKalmanFilter(Estimator):
     Example
     ----------
     To run the extended Kalman filter:
-        $ python drone_estimator_node.py --estimator extended_kalman_filter
+        $ python drone_estimator_node.py --estimator ekf
     """
     def __init__(self, is_noisy=True):
         super().__init__(is_noisy)
@@ -325,12 +333,9 @@ class ExtendedKalmanFilter(Estimator):
             y = self.y[i]
 
             x_prev = self.x_hat[-1]
-            P_prev = self.P
-
             x_pred = self.g(x_prev, u)
             self.A = self.approx_A(x_prev, u)
-            P_pred = self.A @ P_prev @ self.A.T + self.Q
-         
+            P_pred = self.A @ self.P @ self.A.T + self.Q
             self.C = self.approx_C(x_pred)
             K = P_pred @ self.C.T @ np.linalg.inv(self.C @ P_pred @ self.C.T + self.R)
 
@@ -344,8 +349,10 @@ class ExtendedKalmanFilter(Estimator):
             end_time = time.time()
             self.running_times.append(end_time - start_time)
             if len(self.x) > i:
-                error = np.linalg.norm(self.x[i][0:6] - x_updated[0:6])
-                self.errors.append(error)
+                pos_error = np.linalg.norm(self.x[i][0:2] - x_updated[0:2]) # Error function in terms of x, z
+                orientation_error = np.linalg.norm(self.x[i][2] - x_updated[2]) # Error function in terms of phi
+                self.position_errors.append(pos_error)
+                self.orientation_errors.append(orientation_error)
 
     def g(self, x, u):
         """Nonlinear dynamics model."""
