@@ -79,12 +79,22 @@ class Estimator:
         self.y = []
         self.x_hat = []  # Your estimates go here!
         self.dt = 0.1
-        self.fig, self.axd = plt.subplot_mosaic(
-            [['xy', 'phi'],
-             ['xy', 'x'],
-             ['xy', 'y'],
-             ['xy', 'thl'],
-             ['xy', 'thr']], figsize=(20.0, 10.0))
+        
+        # Create figure and subplots manually instead of using subplot_mosaic
+        self.fig = plt.figure(figsize=(20.0, 10.0))
+        self.axd = {}
+        
+        # Create a grid of subplots
+        gs = plt.GridSpec(4, 2, figure=self.fig)
+        
+        # Create each subplot and store in the axd dictionary
+        self.axd['xy'] = self.fig.add_subplot(gs[0:4, 0])  # Left column, all rows
+        self.axd['phi'] = self.fig.add_subplot(gs[0, 1])   # Top right
+        self.axd['x'] = self.fig.add_subplot(gs[1, 1])     # Second row right
+        self.axd['y'] = self.fig.add_subplot(gs[2, 1])     # Third row right
+        self.axd['thl'] = self.fig.add_subplot(gs[3, 1])   # Bottom right
+        self.axd['thr'] = self.fig.add_subplot(gs[3, 1])   # Same as thl (they share the same subplot)
+        
         self.ln_xy, = self.axd['xy'].plot([], 'o-g', linewidth=2, label='True')
         self.ln_xy_hat, = self.axd['xy'].plot([], 'o-c', label='Estimated')
         self.ln_phi, = self.axd['phi'].plot([], 'o-g', linewidth=2, label='True')
