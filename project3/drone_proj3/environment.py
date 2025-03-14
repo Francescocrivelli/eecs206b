@@ -84,7 +84,6 @@ class Environment:
         
         #solve for the control input using the observed state
         self.controller.eval_input(self.t)
-        
         #Zero order hold over the controller frequency
         for i in range(self.SIMS_PER_STEP):
             self.dynamics.integrate(self.controller.get_input(), self.t, 1/self.SIM_FREQ) #integrate dynamics
