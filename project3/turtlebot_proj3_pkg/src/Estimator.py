@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 plt.rcParams['font.family'] = ['FreeSans', 'Helvetica', 'Arial']
 plt.rcParams['font.size'] = 14
+import time
 
 
 class Estimator:
@@ -101,6 +102,37 @@ class Estimator:
         self.sub_x = rospy.Subscriber('x', Float32MultiArray, self.callback_x)
         self.sub_y = rospy.Subscriber('y', Float32MultiArray, self.callback_y)
         self.tmr_update = rospy.Timer(rospy.Duration(self.dt), self.update)
+
+
+
+        # New attributes for quantitative measurements
+        self.errors = []  # To store estimation errors
+        self.running_times = []  # To store per-step running times
+
+        # Register a shutdown hook to print metrics
+        rospy.on_shutdown(self.print_metrics)
+
+
+    def print_metrics(self):
+        """Print accuracy and running time metrics when the node shuts down."""
+        if len(self.errors) == 0 or len(self.running_times) == 0:
+            print("No metrics computed yet.")
+            return
+
+        # Compute accuracy metrics
+        mse = np.mean(np.square(self.errors))
+        rmse = np.sqrt(mse)
+        mae = np.mean(np.abs(self.errors))
+        print(f"Estimation Accuracy Metrics:")
+        print(f"MSE: {mse:.6f}")
+        print(f"RMSE: {rmse:.6f}")
+        print(f"MAE: {mae:.6f}")
+
+        # Compute average running time
+        avg_running_time = np.mean(self.running_times)
+        print(f"Average Per-Step Running Time: {avg_running_time:.6f} seconds")
+
+
 
     def callback_u(self, msg):
         self.u.append(msg.data)
@@ -247,19 +279,18 @@ class DeadReckoning(Estimator):
         self.canvas_title = 'Dead Reckoning'
 
     def update(self, i):
-        if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
+        if len(self.x_hat) > 0: # and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
+            start_time = time.time()
             # Get the current state estimate
             x_prev = self.x_hat[-1]
             
-            # Extract the current state variables
+            # Extract the current state variables and control inputs
             phi_prev = x_prev[0]
             x_prev_pos = x_prev[1]
             y_prev_pos = x_prev[2]
             theta_L_prev = x_prev[3]
             theta_R_prev = x_prev[4]
-            
-            # Get the current control inputs
             u_L = self.u[i][0]
             u_R = self.u[i][1]
             
@@ -277,11 +308,21 @@ class DeadReckoning(Estimator):
             theta_L_next = theta_L_prev + theta_L_dot * self.dt
             theta_R_next = theta_R_prev + theta_R_dot * self.dt
             
-            # Append the new state estimate to x_hat
+    
             x_next_state = np.array([phi_next, x_next, y_next, theta_L_next, theta_R_next])
             self.x_hat.append(x_next_state)
             # You may ONLY use self.u and self.x[0] for estimation
-            # raise NotImplementedError
+
+
+            
+            end_time = time.time()
+            self.running_times.append(end_time - start_time)
+
+            # Compute estimation error
+            if len(self.x) > i:
+                error = np.linalg.norm(self.x[i][0:5] - x_next_state[0:5])  
+                self.errors.append(error)
+          
 
 
 class KalmanFilter(Estimator):
@@ -327,25 +368,25 @@ class KalmanFilter(Estimator):
         ])  # Measurement matrix
 
         # Define noise covariance matrices
-        self.Q = np.diag([0.01, 0.01, 0.01, 0.01])  # Process noise covariance
-        self.R = np.diag([0.1, 0.1])  # Measurement noise covariance
-        self.P = np.diag([1, 1, 1, 1])  # Initial state covariance
+        self.Q = np.diag([0.01, 0.01, 0.01, 0.01]) * 1 # Process noise covariance
+        self.R = np.diag([0.1, 0.1]) * 10 # Measurement noise covariance
+        self.P = np.diag([1, 1, 1, 1])  * 1 # Initial state covariance
 
     # noinspection DuplicatedCode
     # noinspection PyPep8Naming
-    def update(self, _):
-        if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
+    def update(self, i):
+        if len(self.x_hat) > 0: # and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
             # You may use self.u, self.y, and self.x[0] for estimation
-
+            start_time = time.time()
 
             # Get the latest control input and measurement
             u = self.u[-1]
             y = self.y[-1]
 
             # Get the previous state estimate and covariance
-            x_prev = self.x_hat[-1]         # Step 2 in algorithm
-            P_prev = self.P                 # Step 3 in algorithm
+            x_prev = self.x_hat[-1]         
+            P_prev = self.P                 
 
             # Prediction step
             x_pred = self.A @ x_prev + self.B @ u   # State extrapolation
@@ -355,11 +396,16 @@ class KalmanFilter(Estimator):
             K = P_pred @ self.C.T @ np.linalg.inv(self.C @ P_pred @ self.C.T + self.R)  # Kalman gain
             x_updated = x_pred + K @ (y - self.C @ x_pred)  # State update
             P_updated = (np.eye(4) - K @ self.C) @ P_pred  # Covariance update
-
-            # Save the updated state and covariance
             self.x_hat.append(x_updated)
             self.P = P_updated
-            # raise NotImplementedError
+
+
+            end_time = time.time()
+            self.running_times.append(end_time - start_time)
+            if len(self.x) > i:
+                error = np.linalg.norm(self.x[i][0:5] - x_updated[0:5])  
+                self.errors.append(error)
+          
 
 
 # noinspection PyPep8Naming
@@ -396,10 +442,10 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         self.landmark = (0.5, 0.5)
         # TODO: Your implementation goes here!
         # You may define the Q, R, and P matrices below.
-         # Define noise covariance matrices
+      
         # Define noise covariance matrices
-        self.Q = np.diag([0.01, 0.01, 0.01, 0.01, 0.01])  # Process noise covariance
-        self.R = np.diag([0.1, 0.1])  # Measurement noise covariance
+        self.Q = np.diag([0.01, 0.01, 0.01, 0.01, 0.01]) * 1 # Process noise covariance
+        self.R = np.diag([0.1, 0.1]) * 1 # Measurement noise covariance
         self.P = np.eye(5) * 1  # Initial state covariance
 
     def g(self, x, u):
@@ -425,6 +471,7 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         distance = np.sqrt((lx - x_pos)**2 + (ly - y_pos)**2)
         # Bearing angle
         bearing = np.arctan2(ly - y_pos, lx - x_pos) - phi
+        # bearing = phi
 
         return np.array([distance, bearing])
 
@@ -465,15 +512,15 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         return C
 
     # noinspection DuplicatedCode
-    def update(self, _):
-        if len(self.x_hat) > 0 and self.x_hat[-1][0] < self.x[-1][0]:
+    def update(self, i):
+        if len(self.x_hat) > 0: # and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
             # You may use self.u, self.y, and self.x[0] for estimation
-            # Get the latest control input and measurement
+            start_time = time.time()
+    
             u = self.u[i]
             y = self.y[i]
 
-            # Get the previous state estimate and covariance
             x_prev = self.x_hat[-1]
             P_prev = self.P
 
@@ -483,24 +530,23 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
             # Linearize the dynamics model
             A = self.approx_A(x_prev, u)
 
-            # Covariance extrapolation
             P_pred = A @ P_prev @ A.T + self.Q
 
             # Linearize the measurement model
             C = self.approx_C(x_pred)
 
-            # Kalman gain
             K = P_pred @ C.T @ np.linalg.inv(C @ P_pred @ C.T + self.R)
 
-            # Measurement update
-            y_pred = self.h(x_pred)
-            x_updated = x_pred + K @ (y - y_pred)
+            x_updated = x_pred + K @ (y - self.h(x_pred))
 
-            # Covariance update
-            P_updated = (np.eye(5) - K @ C) @ P_pred
-
-            # Save the updated state and covariance
             self.x_hat.append(x_updated)
-            self.P = P_updated
-            # raise NotImplementedError
+            self.P = (np.eye(5) - K @ C) @ P_pred
+
+            end_time = time.time()
+            self.running_times.append(end_time - start_time)
+
+            if len(self.x) > i:
+                error = np.linalg.norm(self.x[i][0:6] - x_updated[0:6])  
+                self.errors.append(error)
+            
 
