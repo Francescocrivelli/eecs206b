@@ -106,7 +106,8 @@ class Estimator:
 
 
         # New attributes for quantitative measurements
-        self.errors = []  # To store estimation errors
+        self.position_errors = []  # To store estimation errors
+        self.orientation_errors = []
         self.running_times = []  # To store per-step running times
 
         # Register a shutdown hook to print metrics
@@ -115,18 +116,23 @@ class Estimator:
 
     def print_metrics(self):
         """Print accuracy and running time metrics when the node shuts down."""
-        if len(self.errors) == 0 or len(self.running_times) == 0:
+        if len(self.position_errors) == 0 or len(self.orientation_errors) == 0 or len(self.running_times) == 0:
             print("No metrics computed yet.")
             return
 
         # Compute accuracy metrics
-        mse = np.mean(np.square(self.errors))
-        rmse = np.sqrt(mse)
-        mae = np.mean(np.abs(self.errors))
+        # mse = np.mean(np.square(self.errors))
+        # rmse = np.sqrt(mse)
+        # mae = np.mean(np.abs(self.errors))
+        mse_position = np.mean(np.square(self.position_errors))
+        rmse_position = np.sqrt(mse_position)
+        mse_orientation = np.mean(np.square(self.orientation_errors))
+        rmse_orientation = np.sqrt(mse_orientation)
         print(f"Estimation Accuracy Metrics:")
-        print(f"MSE: {mse:.6f}")
-        print(f"RMSE: {rmse:.6f}")
-        print(f"MAE: {mae:.6f}")
+        # print(f"MSE: {mse:.6f}")
+        print(f"RMSE Position: {rmse_position:.6f}")
+        # print(f"MAE: {mae:.6f}")
+        print(f"RMSE Orientation: {rmse_orientation:.6f}")
 
         # Compute average running time
         avg_running_time = np.mean(self.running_times)
@@ -320,8 +326,10 @@ class DeadReckoning(Estimator):
 
             # Compute estimation error
             if len(self.x) > i:
-                error = np.linalg.norm(self.x[i][0:5] - x_next_state[0:5])  
-                self.errors.append(error)
+                error_position = np.linalg.norm(self.x[i][1:3] - x_next_state[1:3])  # Error function in terms of x and y
+                error_orientation = np.linalg.norm(self.x[i][0] - x_next_state[0]) # phi 
+                self.position_errors.append(error_position)
+                self.orientation_errors.append(error_orientation)
           
 
 
@@ -385,12 +393,11 @@ class KalmanFilter(Estimator):
             y = self.y[-1]
 
             # Get the previous state estimate and covariance
-            x_prev = self.x_hat[-1]         
-            P_prev = self.P                 
+            x_prev = self.x_hat[-1]                        
 
             # Prediction step
             x_pred = self.A @ x_prev + self.B @ u   # State extrapolation
-            P_pred = self.A @ P_prev @ self.A.T + self.Q # Covariance extrapolation
+            P_pred = self.A @ self.P @ self.A.T + self.Q # Covariance extrapolation
 
             # Update step
             K = P_pred @ self.C.T @ np.linalg.inv(self.C @ P_pred @ self.C.T + self.R)  # Kalman gain
@@ -403,8 +410,10 @@ class KalmanFilter(Estimator):
             end_time = time.time()
             self.running_times.append(end_time - start_time)
             if len(self.x) > i:
-                error = np.linalg.norm(self.x[i][0:5] - x_updated[0:5])  
-                self.errors.append(error)
+                error_position = np.linalg.norm(self.x[i][0:2] - x_updated[0:2])  # Error function in terms of x and y
+                # error_orientation = np.linalg.norm(self.x[i][0] - x_updated[0]) # phi is constant so we don't need to measure orientation error
+                self.position_errors.append(error_position)
+                self.orientation_errors.append(0)
           
 
 
@@ -522,23 +531,15 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
             y = self.y[i]
 
             x_prev = self.x_hat[-1]
-            P_prev = self.P
+            x_pred = self.g(x_prev, u)      # State extrapolation (using nonlinear dynamics)
 
-            # State extrapolation (using nonlinear dynamics)
-            x_pred = self.g(x_prev, u)
-
-            # Linearize the dynamics model
-            A = self.approx_A(x_prev, u)
-
-            P_pred = A @ P_prev @ A.T + self.Q
-
-            # Linearize the measurement model
-            C = self.approx_C(x_pred)
-
+         
+            A = self.approx_A(x_prev, u)     # Linearize the dynamics model
+            P_pred = A @ self.P @ A.T + self.Q
+            C = self.approx_C(x_pred)   # Linearize the measurement model
             K = P_pred @ C.T @ np.linalg.inv(C @ P_pred @ C.T + self.R)
 
             x_updated = x_pred + K @ (y - self.h(x_pred))
-
             self.x_hat.append(x_updated)
             self.P = (np.eye(5) - K @ C) @ P_pred
 
@@ -546,7 +547,9 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
             self.running_times.append(end_time - start_time)
 
             if len(self.x) > i:
-                error = np.linalg.norm(self.x[i][0:6] - x_updated[0:6])  
-                self.errors.append(error)
+                error_position = np.linalg.norm(self.x[i][1:3] - x_updated[1:3])  # Error function in terms of x and y
+                error_orientation = np.linalg.norm(self.x[i][0] - x_updated[0]) # phi 
+                self.position_errors.append(error_position)
+                self.orientation_errors.append(error_orientation)
             
 
