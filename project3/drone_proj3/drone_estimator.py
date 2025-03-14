@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 plt.rcParams['font.family'] = ['Arial']
 plt.rcParams['font.size'] = 14
+import time
 
 
 class Estimator:
@@ -51,7 +52,7 @@ class Estimator:
         The landmark is positioned at (0, 5, 5).
     """
     # noinspection PyTypeChecker
-    def __init__(self, is_noisy=False):
+    def __init__(self, is_noisy=True):                          # TRIED CHANGING IS_NOISY FROM FALSE TO TRUE TO SEE IF SMTH CHANGED
         self.u = []
         self.x = []
         self.y = []
@@ -70,6 +71,10 @@ class Estimator:
         self.ln_z, = self.axd['z'].plot([], 'o-g', linewidth=2, label='True')
         self.ln_z_hat, = self.axd['z'].plot([], 'o-c', label='Estimated')
         self.canvas_title = 'N/A'
+
+         # New attributes for quantitative measurements
+        self.errors = []  # To store estimation errors
+        self.running_times = []  # To store per-step running times
 
         # Defined in dynamics.py for the dynamics model
         # m is the mass and J is the moment of inertia of the quadrotor 
@@ -100,7 +105,37 @@ class Estimator:
                 self.x_hat.append(self.x[-1])
             else:
                 self.update(i)
+
+
+
+        # Compute and print accuracy metrics
+        self.compute_accuracy()
+        # Compute and print average running time
+        self.compute_running_time()
         return self.x_hat
+    
+    def compute_accuracy(self):
+        """Compute and print accuracy metrics (MSE, RMSE, MAE)."""
+        if len(self.errors) == 0:
+            print("No errors computed yet.")
+            return
+
+        mse = np.mean(np.square(self.errors))
+        rmse = np.sqrt(mse)
+        mae = np.mean(np.abs(self.errors))
+        print(f"Estimation Accuracy Metrics:")
+        print(f"MSE: {mse:.6f}")
+        print(f"RMSE: {rmse:.6f}")
+        print(f"MAE: {mae:.6f}")
+
+    def compute_running_time(self):
+        """Compute and print average per-step running time."""
+        if len(self.running_times) == 0:
+            print("No running times computed yet.")
+            return
+
+        avg_running_time = np.mean(self.running_times)
+        print(f"Average Per-Step Running Time: {avg_running_time:.6f} seconds")
 
     def update(self, _):
         raise NotImplementedError
@@ -178,7 +213,7 @@ class OracleObserver(Estimator):
     To run the oracle observer:
         $ python drone_estimator_node.py --estimator oracle_observer
     """
-    def __init__(self, is_noisy=False):
+    def __init__(self, is_noisy=True):   # TRIED CHANGING IS_NOISY FROM FALSE TO TRUE TO SEE IF SMTH CHANGED
         super().__init__(is_noisy)
         self.canvas_title = 'Oracle Observer'
 
@@ -202,38 +237,39 @@ class DeadReckoning(Estimator):
     To run dead reckoning:
         $ python drone_estimator_node.py --estimator dead_reckoning
     """
-    def __init__(self, is_noisy=False):
+    def __init__(self, is_noisy=True):              # TRIED CHANGING IS_NOISY FROM FALSE TO TRUE TO SEE IF SMTH CHANGED
         super().__init__(is_noisy)
         self.canvas_title = 'Dead Reckoning'
 
     def update(self, i):
         if len(self.x_hat) > 0:
             # TODO: Your implementation goes here!
-            # Get the current state estimate
+              # You may ONLY use self.u and self.x[0] for estimation
+            start_time = time.time()
             x_prev = self.x_hat[-1]
-            # u_prev = self.u[i - 1]  # Input at the previous time step
-
-            # Extract state variables
             x, z, phi, x_dot, z_dot, phi_dot = x_prev
             u1, u2 = self.u[i]
 
-            # Compute the derivatives using the dynamics model
             x_ddot = (-u1 * np.sin(phi)) / self.m
             z_ddot = -self.gr + (u1 * np.cos(phi)) / self.m
             phi_ddot = u2 / self.J
-
-            # Update the state using the forward Euler method
             x_new = x + x_dot * self.dt
             z_new = z + z_dot * self.dt
             phi_new = phi + phi_dot * self.dt
             x_dot_new = x_dot + x_ddot * self.dt
             z_dot_new = z_dot + z_ddot * self.dt
             phi_dot_new = phi_dot + phi_ddot * self.dt
+            x_next_state = np.array([x_new, z_new, phi_new, x_dot_new, z_dot_new, phi_dot_new])
+        
+            self.x_hat.append(x_next_state)
 
-            # Append the new state estimate
-            self.x_hat.append(np.array([x_new, z_new, phi_new, x_dot_new, z_dot_new, phi_dot_new]))
-            # You may ONLY use self.u and self.x[0] for estimation
-            # raise NotImplementedError
+        
+            end_time = time.time()
+            self.running_times.append(end_time - start_time)
+            if len(self.x) > i:
+                error = np.linalg.norm(self.x[i][0:6] - x_next_state[0:6]) # Error function in terms of x, z, and phi
+                self.errors.append(error)
+    
 
 # noinspection PyPep8Naming
 class ExtendedKalmanFilter(Estimator):
@@ -261,7 +297,7 @@ class ExtendedKalmanFilter(Estimator):
     To run the extended Kalman filter:
         $ python drone_estimator_node.py --estimator extended_kalman_filter
     """
-    def __init__(self, is_noisy=False):
+    def __init__(self, is_noisy=True):
         super().__init__(is_noisy)
         self.canvas_title = 'Extended Kalman Filter'
         # TODO: Your implementation goes here!
@@ -271,12 +307,12 @@ class ExtendedKalmanFilter(Estimator):
         self.C = None
 
 
-        # Process noise covariance
-        self.Q = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])  # Tune as needed
-        # Measurement noise covariance
-        self.R = np.diag([0.5, 0.5])  # Adjust based on sensor noise
-        # State covariance matrix
-        self.P = np.eye(6) * 1  # Initial state uncertainty
+        # Process noise covariance (How much we trust the model predictions)            Original Gain: 0.1
+        self.Q = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1]) * 0.1
+        # Measurement noise covariance (How much we trust the sensor measurements)      Original Gain: 10 
+        self.R = np.diag([0.5, 0.5]) * 10 
+        # State covariance matrix (Controls the initial uncertainty in the state estimate)          Original Gain: 1
+        self.P = np.eye(6) * 1 
 
 
     # noinspection DuplicatedCode
@@ -284,46 +320,34 @@ class ExtendedKalmanFilter(Estimator):
         if len(self.x_hat) > 0: #and self.x_hat[-1][0] < self.x[-1][0]:
             # TODO: Your implementation goes here!
             # You may use self.u, self.y, and self.x[0] for estimation
-            # raise NotImplementedError
-           
-
-            # Get the latest control input and measurement
+            start_time = time.time()
             u = self.u[i]
             y = self.y[i]
 
-            # Get the previous state estimate and covariance
             x_prev = self.x_hat[-1]
             P_prev = self.P
 
-            # State extrapolation (using nonlinear dynamics)
             x_pred = self.g(x_prev, u)
+            self.A = self.approx_A(x_prev, u)
+            P_pred = self.A @ P_prev @ self.A.T + self.Q
+         
+            self.C = self.approx_C(x_pred)
+            K = P_pred @ self.C.T @ np.linalg.inv(self.C @ P_pred @ self.C.T + self.R)
 
-            # Linearize the dynamics model
-            A = self.approx_A(x_prev, u)
-
-            # Covariance extrapolation
-            P_pred = A @ P_prev @ A.T + self.Q
-
-            # Linearize the measurement model
-            C = self.approx_C(x_pred)
-
-            # Kalman gain
-            K = P_pred @ C.T @ np.linalg.inv(C @ P_pred @ C.T + self.R)
-
-            # Measurement update
             y_pred = self.h(x_pred)
             x_updated = x_pred + K @ (y - y_pred)
+            P_updated = (np.eye(6) - K @ self.C) @ P_pred
 
-            # Covariance update
-            P_updated = (np.eye(6) - K @ C) @ P_pred
-
-            # Save the updated state and covariance
             self.x_hat.append(x_updated)
             self.P = P_updated
 
+            end_time = time.time()
+            self.running_times.append(end_time - start_time)
+            if len(self.x) > i:
+                error = np.linalg.norm(self.x[i][0:6] - x_updated[0:6])
+                self.errors.append(error)
 
     def g(self, x, u):
-        # raise NotImplementedError
         """Nonlinear dynamics model."""
         x_pos, z_pos, phi, x_vel, z_vel, phi_vel = x
         u1, u2 = u
@@ -333,7 +357,7 @@ class ExtendedKalmanFilter(Estimator):
         z_acc = -self.gr + (u1 * np.cos(phi)) / self.m
         phi_acc = u2 / self.J
 
-        # State update
+
         x_pos_new = x_pos + x_vel * self.dt
         z_pos_new = z_pos + z_vel * self.dt
         phi_new = phi + phi_vel * self.dt
@@ -344,44 +368,7 @@ class ExtendedKalmanFilter(Estimator):
         return np.array([x_pos_new, z_pos_new, phi_new, x_vel_new, z_vel_new, phi_vel_new])
 
 
-
-
-
-        # """Nonlinear dynamics model for the planar quadrotor."""
-        # x_pos, z_pos, phi, vx, vz, omega = x
-        # f1, f2 = u  # Control inputs (thrust from rotors)
-
-        # # Operating point (x^*, u^*)
-        # x_star = self.x_hat[-1] if len(self.x_hat) > 0 else x
-        # u_star = self.u[-1] if len(self.u) > 0 else u
-
-        # # Total thrust and net moment at operating point
-        # u1_star = u_star[0] + u_star[1]
-        # u2_star = (self.L / 2) * (u_star[0] - u_star[1])
-
-        # # Dynamics at operating point
-        # g_star = np.array([
-        #     x_star[0] + x_star[3] * self.dt,  # x position
-        #     x_star[1] + x_star[4] * self.dt,  # z position
-        #     x_star[2] + x_star[5] * self.dt,  # phi (pitch angle)
-        #     x_star[3] + (-u1_star * np.sin(x_star[2])) / self.mass * self.dt,  # vx
-        #     x_star[4] + (-self.gr + (u1_star * np.cos(x_star[2])) / self.m) * self.dt,  # vz
-        #     x_star[5] + (u2_star / self.J) * self.dt  # omega
-        # ])
-
-        # # Jacobian A (∂g/∂x)
-        # A = self.approx_A(x_star, u_star)
-
-        # # Jacobian B (∂g/∂u)
-        # B = self.approx_B(x_star, u_star)
-
-        # # Linearized dynamics
-        # x_next = g_star + A @ (x - x_star) + B @ (u - u_star)
-
-        # return x_next
-
     def h(self, x):
-        # raise NotImplementedError
         """Nonlinear measurement model."""
         x_pos, z_pos, phi, _, _, _ = x
         lx, ly, lz = self.landmark
@@ -395,7 +382,6 @@ class ExtendedKalmanFilter(Estimator):
 
         
     def approx_A(self, x, u):
-        # raise NotImplementedError
         """Linearize the dynamics model around the current state and input."""
         x_pos, z_pos, phi, x_vel, z_vel, phi_vel = x
         u1, u2 = u
@@ -413,7 +399,6 @@ class ExtendedKalmanFilter(Estimator):
 
     
     def approx_C(self, x):
-        # raise NotImplementedError
         x_pos, z_pos, phi, _, _, _ = x
         lx, ly, lz = self.landmark
 
@@ -425,24 +410,4 @@ class ExtendedKalmanFilter(Estimator):
         C[1, 2] = 1  # Partial derivative of bearing w.r.t. phi
 
         return C
-    
-
-
-
-
-    def approx_B(self, x, u):
-        """Jacobian of the dynamics model with respect to u."""
-        phi = x[2]  # Pitch angle
-
-        B = np.zeros((6, 2))
-        B[3, 0] = (-np.sin(phi)) / self.m * self.dt  # vx depends on f1
-        B[3, 1] = (-np.sin(phi)) / self.m * self.dt  # vx depends on f2
-        B[4, 0] = (np.cos(phi)) / self.m * self.dt  # vz depends on f1
-        B[4, 1] = (np.cos(phi)) / self.m * self.dt  # vz depends on f2
-        B[5, 0] = (self.L / (2 * self.J)) * self.dt  # omega depends on f1
-        B[5, 1] = (-self.L / (2 * self.J)) * self.dt  # omega depends on f2
-
-        return B
-
-
     
