@@ -525,19 +525,15 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         u_L, u_R = u[0], u[1]
 
         # Jacobian of the dynamics (A matrix)
-        # A = np.eye(5)  # Identity matrix for the state transition
+        A = np.eye(5)  # Identity matrix for the state transition
         # A[0, 3] = (-self.r / (2 * self.d)) * self.dt  # Partial derivative of phi w.r.t. theta_L
         # A[0, 4] = (self.r / (2 * self.d)) * self.dt  # Partial derivative of phi w.r.t. theta_R
-        # A[1, 0] = (-self.r / 2) * np.sin(phi) * (u_L + u_R) * self.dt  # Partial derivative of x_pos w.r.t. phi
+        A[1, 0] = (-self.r / 2) * np.sin(phi) * (u_L + u_R) * self.dt  # Partial derivative of x_pos w.r.t. phi
         # A[1, 3] = (self.r / 2) * np.cos(phi) * self.dt  # Partial derivative of x_pos w.r.t. theta_L
         # A[1, 4] = (self.r / 2) * np.cos(phi) * self.dt  # Partial derivative of x_pos w.r.t. theta_R
-        # A[2, 0] = (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt  # Partial derivative of y_pos w.r.t. phi
+        A[2, 0] = (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt  # Partial derivative of y_pos w.r.t. phi
         # A[2, 3] = (self.r / 2) * np.sin(phi) * self.dt  # Partial derivative of y_pos w.r.t. theta_L
         # A[2, 4] = (self.r / 2) * np.sin(phi) * self.dt  # Partial derivative of y_pos w.r.t. theta_R
-        # return A
-        A = np.zeros((5,5))
-        A[1,0] = (-self.r / 2) * np.sin(phi) * (u_L + u_R) * self.dt
-        A[2,0] = (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt 
         return A
 
     def approx_C(self, x):
