@@ -498,11 +498,11 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         u_L, u_R = u[0], u[1]
 
         # State update. So far, this is just the dead reckoning dynamic model 
-        phi_new = phi + (-self.r / (2 * self.d)) * u_L * self.dt + (self.r / (2 * self.d)) * u_R * self.dt
-        x_pos_new = x_pos + (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt
-        y_pos_new = y_pos + (self.r / 2) * np.sin(phi) * (u_L + u_R) * self.dt
-        theta_L_new = theta_L + u_L * self.dt
-        theta_R_new = theta_R + u_R * self.dt
+        phi_new = phi                                                                           + (self.r / (2 * self.d)) * (u_R - u_L) * self.dt
+        x_pos_new = x_pos    - (self.r * phi * np.sin(phi)) * (u_L + u_R) * self.dt             + (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt
+        y_pos_new = y_pos    +  (self.r * phi * np.cos(phi)) * (u_L + u_R) * self.dt            + (self.r / 2) * np.sin(phi) * (u_L + u_R) * self.dt
+        theta_L_new = theta_L                                                                   + u_L * self.dt
+        theta_R_new = theta_R                                                                   + u_R * self.dt
 
         return np.array([phi_new, x_pos_new, y_pos_new, theta_L_new, theta_R_new]) 
 
