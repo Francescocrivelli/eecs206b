@@ -299,8 +299,7 @@ ing_times.append(end_time - start_time)
             y_prev_pos = x_prev[3]
             theta_L_prev = x_prev[4]
             theta_R_prev = x_prev[5]
-            # u_L = self.u[i][0]
-            # u_R = self.u[i][1]
+        
             if self.current_step >= len(self.u):
                 return 
             _, u_L, u_R = self.u[self.current_step]
@@ -372,7 +371,7 @@ class KalmanFilter(Estimator):
         # You may define the A, C, Q, R, and P matrices below.
         # Define model matrices
       
-        self.A = np.eye(4)  # State transition matrix
+        self.A = np.eye(4)  # State transition matrix   (x, y, thetaL, thetaR)
         self.B = np.array([
             [self.r * 0.5 * np.cos(self.phid), self.r * 0.5 * np.cos(self.phid)],
             [self.r * 0.5 * np.sin(self.phid), self.r * 0.5 * np.sin(self.phid)],
@@ -383,9 +382,11 @@ class KalmanFilter(Estimator):
             [1, 0, 0, 0],
             [0, 1, 0, 0]])
         # Define noise covariance matrices
-        self.Q = np.diag([0.01, 0.01, 0.01, 0.01]) * 1 # Process noise covariance
-        self.R = np.diag([0.1, 0.1]) * 1 # Measurement noise covariance
-        self.P = np.diag([1, 1, 1, 1])  * 1 # Initial state covariance
+        self.Q = np.diag([0.01, 0.01, 0.01, 0.01]) * 1 # Process noise covariance           (x, y, thetaL, thetaR)
+        self.R = np.diag([0.1, 0.1]) * 0.1 # Measurement noise covariance                     (x_hat, y_hat, thetaL_hat, thetaR_hat)
+        self.P = np.diag([1, 1, 1, 1])  * 0.01 # Initial state covariance  (Quickly or Slowly Adjust estimates based on measurements)
+
+        # Observation Note: Seems like 0.01 is pretty good!             DO NOT TOUCH THESE TUNES PLS. JUST THE EKF
         
         self.current_step = 0
     # noinspection DuplicatedCode
@@ -470,28 +471,43 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         # You may define the Q, R, and P matrices below.
       
         # Define noise covariance matrices
-        self.Q = np.diag([0.01, 0.01, 0.01, 0.01, 0.01]) * 100 # Process noise covariance
-        self.R = np.diag([0.1, 0.1]) * 10 # Measurement noise covariance
-        self.P = np.eye(5) * 1  # Initial state covariance
+        # self.Q = np.diag([0.01, 0.01, 0.01, 0.001, 0.01]) * 0.1 # Process noise covariance                [phi, x, y, thetaL, thetaR]         
+        self.Q = np.array([
+            [0.001, 0, 0, 0, 0],     # phi noise and correlations
+            [0, 0.001, 0, 0, 0],     # x noise and correlations    phi corr? 0.001
+            [0, 0, 0.001, 0, 0],      # y noise and correlations
+            [0, 0, 0, 0.0001, 0],       # thetaL noise
+            [0, 0, 0, 0, 0.001]      # thetaR noise
+        ])
+        # self.R = np.diag([0.1, 0.1]) * 0.01 # Measurement noise covariance                          
+        self.R = np.array([
+            [0.001, 0],           
+            [0, 0.001]])
+        # self.P = np.diag([0.1, 10, 10, 1, 1]) * 1  # Initial state covariance                   
+        self.P = np.array([[0.1, 0.01, 0.01, 0, 0],            # phi uncertainty and correlations
+                           [0.01, 10, 0.01, 0, 0],             # x uncertainty and correlations
+                           [0.01, 0.01, 10, 0, 0],             # y uncertainty and correlations
+                           [0, 0, 0, 1, 0],                 # theta_L uncertainty
+                           [0, 0, 0, 0, 1]])             # theta_R uncertainty
 
     def g(self, x, u):
-        """Nonlinear dynamif self.current_step >= len(self.u):
+        """Nonlinear dynamic self.current_step >= len(self.u):
                 return ics model for the unicycle."""
     
         phi, x_pos, y_pos, theta_L, theta_R = x[1:6]
-        u_L, u_R = u
+        u_L, u_R = u[0], u[1]
 
-        # State update
+        # State update. So far, this is just the dead reckoning dynamic model 
         phi_new = phi + (-self.r / (2 * self.d)) * u_L * self.dt + (self.r / (2 * self.d)) * u_R * self.dt
         x_pos_new = x_pos + (self.r / 2) * np.cos(phi) * (u_L + u_R) * self.dt
         y_pos_new = y_pos + (self.r / 2) * np.sin(phi) * (u_L + u_R) * self.dt
         theta_L_new = theta_L + u_L * self.dt
         theta_R_new = theta_R + u_R * self.dt
 
-        return np.array([phi_new, x_pos_new, y_pos_new, theta_L_new, theta_R_new])
+        return np.array([phi_new, x_pos_new, y_pos_new, theta_L_new, theta_R_new]) 
 
     def h(self, x):
-        """Nonlinear measurement model."""
+        """Nonlinear measurement mod  print(f"U contains these: {u}")el."""
         phi, x_pos, y_pos, _, _ = x
         lx, ly = self.landmark
 
@@ -506,7 +522,7 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
     def approx_A(self, x, u):
         """Linearize the dynamics model around the current state and input."""
         phi, _, _, _, _ = x[1:6]        # [phi, x, y, thetaL, thetaR] ignore timestamp
-        u_L, u_R = u
+        u_L, u_R = u[0], u[1]
 
         # Jacobian of the dynamics (A matrix)
         A = np.eye(5)  # Identity matrix for the state transition
@@ -532,8 +548,8 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         C = np.zeros((2, 5))
         C[0, 1] = -(lx - x_pos) / distance  # Partial derivative of distance w.r.t. x_pos
         C[0, 2] = -(ly - y_pos) / distance  # Partial derivative of distance w.r.t. y_pos
-        C[1, 1] = (ly - y_pos) / distance**2  # Partial derivative of bearing w.r.t. x_pos
-        C[1, 2] = -(lx - x_pos) / distance**2  # Partial derivative of bearing w.r.t. y_pos
+        C[1, 1] = (ly - y_pos) / (distance**2)  # Partial derivative of bearing w.r.t. x_pos
+        C[1, 2] = -(lx - x_pos) / (distance**2)  # Partial derivative of bearing w.r.t. y_pos
         C[1, 0] = -1  # Partial derivative of bearing w.r.t. phi
 
         return C
