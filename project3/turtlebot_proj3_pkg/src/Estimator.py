@@ -478,7 +478,7 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         #     [0, 0, 0, 0.0001, 0],       # thetaL noise
         #     [0, 0, 0, 0, 0.001]      # thetaR noise
         # ])
-        # self.R = np.diag([0.1, 0.1]) * 0.01 # Measurement noise covariance                          
+        self.R = np.diag([0.1, 0.1]) * 0.01 # Measurement noise covariance                          
         # self.R = np.array([
         #     [0.001, 0],           
         #     [0, 0.001]])
