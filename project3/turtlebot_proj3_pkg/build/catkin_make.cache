@@ -1,0 +1,2 @@
+
+-DCATKIN_DEVEL_PREFIX=/home/cc/ee106b/sp25/class/ee106b-aau/eecs206b/project3/turtlebot_proj3_pkg/devel -DCMAKE_INSTALL_PREFIX=/home/cc/ee106b/sp25/class/ee106b-aau/eecs206b/project3/turtlebot_proj3_pkg/install -G Unix Makefiles
