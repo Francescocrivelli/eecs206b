@@ -376,7 +376,7 @@ class KalmanFilter(Estimator):
             [self.r * 0.5 * np.sin(self.phid), self.r * 0.5 * np.sin(self.phid)],
             [1, 0],
             [0, 1]
-        ]) * self.dt # Coself.current_step = 0ntrol input matrix
+        ]) * self.dt # Control input matrix
         self.C = np.array([
             [1, 0, 0, 0],
             [0, 1, 0, 0]])
@@ -505,7 +505,7 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         return np.array([phi_new, x_pos_new, y_pos_new, theta_L_new, theta_R_new]) 
 
     def h(self, x):
-        """Nonlinear measurement mod  print(f"U contains these: {u}")el."""
+        """Nonlinear measurement model."""
         phi, x_pos, y_pos, _, _ = x
         lx, ly = self.landmark
 
@@ -569,7 +569,7 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
          
             A = self.approx_A(x_prev, u)     # Linearize the dynamics model
             P_pred = A @ self.P @ A.T + self.Q
-            C = self.approx_C(x_pred)   # Linets anarize the measurement model
+            C = self.approx_C(x_pred)   # Linenarize the measurement model
             K = P_pred @ C.T @ np.linalg.inv(C @ P_pred @ C.T + self.R)
 
             y_pred = self.h(x_pred)
