@@ -533,6 +533,7 @@ class ExtendedKalmanFilter(Estimator):                      # THIS PART IS THE E
         distance = np.sqrt((lx - x_pos)**2 + (ly - y_pos)**2)
         # Bearing angle
         bearing = np.arctan2(ly - y_pos, lx - x_pos) - phi
+        # bearing = phi
     
 
         return np.array([distance, bearing])
